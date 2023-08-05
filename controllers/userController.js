@@ -8,10 +8,9 @@ module.exports = {
   async getUsers(req, res) {
     try {
       const users = await User.find();
-      const userObj = {
-        users,
-      };
-      return res.json(userObj);
+      if (!users) {return res.status(404).json({ message: 'No users found' });}
+
+      return res.json(users);
     } catch (err) {
       console.log(err);
       return res.status(500).json(err);
@@ -21,96 +20,104 @@ module.exports = {
   // Get a single user
   async getSingleUser(req, res) {
     try {
-      const user = await User.findOne({ _id: req.params.userId })
+      const user = await User.findById(req.params.userId).populate('thoughts');
+      if (!user) {return res.status(404).json({ message: 'No user with that ID' });}
 
-
-      if (!user) {
-        return res.status(404).json({ message: 'No user with that ID' });
-      }
-
-      res.json({
-        user,
-      });
+      res.json(user);
     } catch (err) {
       console.log(err);
       return res.status(500).json(err);
     }
   },
 
-  // create a new user
+  /* create a new user
+  {
+    "username": "testuser1",
+    "email": "testuser1@test.com"
+  }
+  */
   async createUser(req, res) {
     try {
       const user = await User.create(req.body);
-      res.json(user);
+
+      res.json({ message: 'New user created' });
     } catch (err) {
       res.status(500).json(err);
     }
   },
 
-  // Delete a user and remove them from the thought
+  // Delete a user and their thoughts/reactions
   async deleteUser(req, res) {
     try {
-      const user = await User.findOneAndRemove({ _id: req.params.userId });
+      const user = await User.findById(req.params.userId)
+      if (!user) {return res.json({message:'No user found'})}
 
-      if (!user) {
-        return res.status(404).json({ message: 'No such user exists' })
-      }
+      const thoughts = await Thought.deleteMany({username:user.username})
 
-      const thought = await Thought.findOneAndUpdate(
-        { users: req.params.userId },
-        { $pull: { users: req.params.userId } },
-        { new: true }
-      );
+      const reactions = await Thought.updateMany(
+        { 'reactions.username': user.username },
+        { $pull: { reactions: { username: user.username } } },
+        { arrayFilters: [{ 'elem.username': user.username }], runValidators: true}
+      )
 
-      if (!thought) {
-        return res.status(404).json({
-          message: 'User deleted, but no thoughts found',
-        });
-      }
-
-      res.json({ message: 'User successfully deleted' });
+      await User.deleteOne({ _id: req.params.userId });
+      
+      if (!user.thoughts.length) {return res.json({message: 'User deleted'})}
+      res.json({ message: 'User and associated thoughts deleted' });
     } catch (err) {
       console.log(err);
       res.status(500).json(err);
     }
   },
 
-  // Get a single user
+  /* update username/email in the user and username in thoughts and thoughts.reactions
+  {
+    "username": "updated",
+    "email": "asdf@gmail.com"
+  }
+  */
   async updateSingleUser(req, res) {
     try {
-      const user = await User.findOneAndUpdate(
+      let user = await User.findById(req.params.userId)
+      if (!user) {return res.status(404).json({ message: 'No user with this id!' });}
+
+      const oldUsername = user.username
+      const newUsername = req.body.username
+
+      const thoughts = await Thought.updateMany(
+        { username: oldUsername },
+        { $set: {username:newUsername} },
+        { runValidators: true}
+      )
+
+      const reactions = await Thought.updateMany(
+        { 'reactions.username': oldUsername },
+        { $set: {'reactions.$[elem].username' :newUsername} },
+        { arrayFilters: [{ 'elem.username': oldUsername }], runValidators: true}
+      )
+      
+      await User.updateOne(
         { _id: req.params.userId },
-        { $set: req.body },
-        { runValidators: true, new: true }
-      );
+        { $set: req.body},
+        { runValidators: true}
+      )
 
-      if (!user) {
-        return res.status(404).json({ message: 'No user with this id!' });
-      }
-
-      res.json(user);
+      res.json({ message: 'User updated' });
     } catch (err) {
       console.log(err);
       return res.status(500).json(err);
     }
   },
 
-  // add a freind
   async addFriend(req, res) {
     try {
       const user = await User.findOne({ _id: req.params.userId })
-      if (!user) {
-        return res.status(404).json({ message: 'No such user exists' })
-      }
+      if (!user) {return res.status(404).json({ message: 'No such user exists' })}
 
       const friend = await User.findOne({ _id: req.params.friendId })
-      if (!friend) {
-        return res.status(404).json({ message: 'No such friend exists' })
-      }
+      if (!friend) {return res.status(404).json({ message: 'No such friend exists' })}
       
-      if (user.friends.includes(friend._id)) {
-        return res.status(404).json({ message: 'Friendship already exists' })
-      }
+      if (user.friends.includes(friend._id)) {return res.status(404).json({ message: 'Friendship already exists' })}
 
       const updatedUser = await User.findOneAndUpdate(
         { _id: req.params.userId },
@@ -118,7 +125,7 @@ module.exports = {
         { new: true },
       );
 
-      res.json(updatedUser );
+      res.json(updatedUser);
     } catch (err) {
       console.log(err)
       res.status(500).json(err);
@@ -128,21 +135,12 @@ module.exports = {
   async deleteFriend(req, res) {
     try {
       const user = await User.findOne({ _id: req.params.userId })
-      if (!user) {
-        return res.status(404).json({ message: 'No such user exists' })
-      }
+      if (!user) {return res.status(404).json({ message: 'No such user exists' })}
 
       const friend = await User.findOne({ _id: req.params.friendId })
-      if (!friend) {
-        return res.status(404).json({ message: 'No such friend exists' })
-      }
+      if (!friend) {return res.status(404).json({ message: 'No such friend exists' })}
       
-      if (!user.friends.includes(friend._id)) {
-        return res.status(404).json({ message: 'No friendship already exists' })
-      }
-
-      console.log(req.params.userId);
-      console.log(req.params.friendId);
+      if (!user.friends.includes(friend._id)) {return res.status(404).json({ message: 'No friendship already exists' })}
 
       const updatedUser  = await User.updateOne(
         { _id: req.params.userId },

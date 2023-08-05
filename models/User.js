@@ -1,6 +1,8 @@
 const { Schema, model } = require('mongoose');
 const reactionsSchema = require('./Reaction');
 
+
+
 var validateEmail = function(email) {
   var re = /^\w+([\.-]?\w+)*@\w+([\.-]?\w+)*(\.\w{2,3})+$/;
   return re.test(email)
@@ -23,16 +25,25 @@ const userSchema = new Schema(
     },
     thoughts: [
       {
-        type: String,
-        ref: 'Thought',
+        type: Schema.Types.ObjectId,
+        ref: 'thought',
       },
     ],
-    friends: [String]
+    friends: [
+      {
+        type: Schema.Types.ObjectId,
+        ref: 'User'
+      }
+    ]
   },
   {
     toJSON: {
       getters: true,
       virtuals: true,
+      versionKey: false, 
+      transform: (doc, ret) => {
+        delete ret.id;
+      },
     },
   }
 );
